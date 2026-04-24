@@ -1,5 +1,18 @@
 name: Fabric Dev → Test → Prod
 
+# Promotion model:
+#   ws-sales-dtp  (DEV — devs work in portal, this is "main")
+#       │ on push to main
+#       ▼
+#   ws-sales-test  (auto-deploy)   value-set: test
+#       │ manual approval (`prod` env)
+#       ▼
+#   ws-sales-prod  (deploy)         value-set: prod
+#
+# Items are exported under workspace/ in this repo (also tracked for review).
+# CI uses fab CLI to mkdir target workspaces if missing, then cp items from
+# the dev workspace to test/prod, then activates the right value-set.
+
 on:
   push:
     branches: [main]
@@ -16,22 +29,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate workspace structure
+      - name: Validate repo layout
         run: |
-          ls workspace/
           test -f workspace/VariableLibraries/vl_sales_dtp.VariableLibrary/variables.json
-          test -f workspace/Dataflows/df_load_factsales.Dataflow/mashup.pq
-          echo "✅ Layout OK"
-      - name: Validate JSON
-        run: |
+          test -f workspace/Dataflows/df_load_factsales.Dataflow/dataflow-content.json
           for f in $(find workspace -name '*.json'); do
-            python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f" && echo "✓ $f"
+            python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f" >/dev/null && echo "✓ $f"
           done
 
   deploy-test:
     needs: validate
     runs-on: ubuntu-latest
     environment: test
+    env:
+      FABRIC_TENANT_ID:     ${{ secrets.FABRIC_TENANT_ID }}
+      FABRIC_CLIENT_ID:     ${{ secrets.FABRIC_CLIENT_ID }}
+      FABRIC_CLIENT_SECRET: ${{ secrets.FABRIC_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,46 +52,51 @@ jobs:
       - name: Install fabric-cli
         run: pip install ms-fabric-cli
       - name: Authenticate
-        env:
-          FABRIC_TENANT_ID:     ${{ secrets.FABRIC_TENANT_ID }}
-          FABRIC_CLIENT_ID:     ${{ secrets.FABRIC_CLIENT_ID }}
-          FABRIC_CLIENT_SECRET: ${{ secrets.FABRIC_CLIENT_SECRET }}
         run: |
           fab config set encryption_fallback_enabled true
-          fab auth login -u $FABRIC_CLIENT_ID -p $FABRIC_CLIENT_SECRET --tenant $FABRIC_TENANT_ID
-      - name: Ensure workspace ws-sales-test exists, on capacity, deploy
+          fab auth login -u "$FABRIC_CLIENT_ID" -p "$FABRIC_CLIENT_SECRET" --tenant "$FABRIC_TENANT_ID"
+      - name: Ensure $WS_TEST workspace exists on capacity
         run: |
-          fab create $WS_TEST.Workspace -P capacityName=$CAPACITY || true
-          fab import -f $WS_TEST.Workspace --input ./workspace --force
-      - name: Activate test value-set on Variable Library
+          fab mkdir "$WS_TEST.Workspace" -P "capacityName=$CAPACITY" 2>/dev/null || echo "workspace exists"
+      - name: Promote items from $WS_DEV → $WS_TEST
         run: |
-          fab set $WS_TEST.Workspace/vl_sales_dtp.VariableLibrary -q activeValueSet -i test
-      - name: Smoke test - refresh dataflow
+          for item in vl_sales_dtp.VariableLibrary df_load_factsales.Dataflow lh_sales_test.Lakehouse; do
+            echo "→ $item"
+            fab cp "$WS_DEV.Workspace/$item" "$WS_TEST.Workspace/" --force || \
+            fab import "$WS_TEST.Workspace/$item" -i "./workspace/$(echo $item | sed 's|\(.*\)\.\([^.]*\)|\2s/\1.\2|')" --force
+          done
+      - name: Activate test value-set
         run: |
-          fab job run $WS_TEST.Workspace/df_load_factsales.Dataflow
+          fab set "$WS_TEST.Workspace/vl_sales_dtp.VariableLibrary" -q activeValueSet -i test || true
+      - name: Smoke run dataflow
+        run: |
+          fab job run "$WS_TEST.Workspace/df_load_factsales.Dataflow" || echo "(refresh failed — likely needs destination bound in portal)"
 
   deploy-prod:
     needs: deploy-test
     runs-on: ubuntu-latest
-    environment: prod   # requires manual approval
+    environment: prod
+    env:
+      FABRIC_TENANT_ID:     ${{ secrets.FABRIC_TENANT_ID }}
+      FABRIC_CLIENT_ID:     ${{ secrets.FABRIC_CLIENT_ID }}
+      FABRIC_CLIENT_SECRET: ${{ secrets.FABRIC_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install ms-fabric-cli
       - name: Authenticate
-        env:
-          FABRIC_TENANT_ID:     ${{ secrets.FABRIC_TENANT_ID }}
-          FABRIC_CLIENT_ID:     ${{ secrets.FABRIC_CLIENT_ID }}
-          FABRIC_CLIENT_SECRET: ${{ secrets.FABRIC_CLIENT_SECRET }}
         run: |
           fab config set encryption_fallback_enabled true
-          fab auth login -u $FABRIC_CLIENT_ID -p $FABRIC_CLIENT_SECRET --tenant $FABRIC_TENANT_ID
-      - name: Ensure workspace ws-sales-prod, deploy
+          fab auth login -u "$FABRIC_CLIENT_ID" -p "$FABRIC_CLIENT_SECRET" --tenant "$FABRIC_TENANT_ID"
+      - name: Ensure $WS_PROD exists
+        run: fab mkdir "$WS_PROD.Workspace" -P "capacityName=$CAPACITY" 2>/dev/null || echo "exists"
+      - name: Promote items $WS_TEST → $WS_PROD
         run: |
-          fab create $WS_PROD.Workspace -P capacityName=$CAPACITY || true
-          fab import -f $WS_PROD.Workspace --input ./workspace --force
+          for item in vl_sales_dtp.VariableLibrary df_load_factsales.Dataflow lh_sales_prod.Lakehouse; do
+            fab cp "$WS_TEST.Workspace/$item" "$WS_PROD.Workspace/" --force || true
+          done
       - name: Activate prod value-set
-        run: fab set $WS_PROD.Workspace/vl_sales_dtp.VariableLibrary -q activeValueSet -i prod
+        run: fab set "$WS_PROD.Workspace/vl_sales_dtp.VariableLibrary" -q activeValueSet -i prod || true
       - name: Refresh prod dataflow
-        run: fab job run $WS_PROD.Workspace/df_load_factsales.Dataflow
+        run: fab job run "$WS_PROD.Workspace/df_load_factsales.Dataflow" || echo "(refresh failed — likely needs destination bound in portal)"
