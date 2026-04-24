@@ -1,0 +1,22 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/variableLibrary/definition/valueSet/1.0.0/schema.json",
+  "name": "test",
+  "variableOverrides": [
+    {
+      "name": "SqlDatabase",
+      "value": "salesdb-test"
+    },
+    {
+      "name": "LakehouseId",
+      "value": "64d31c1f-3605-4750-9c06-64db10933e58"
+    },
+    {
+      "name": "ConnectionId",
+      "value": "d66c659b-2b2b-4238-8466-634d7db435e8"
+    },
+    {
+      "name": "Environment",
+      "value": "test"
+    }
+  ]
+}

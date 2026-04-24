@@ -1,0 +1,81 @@
+name: Fabric Dev → Test → Prod
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CAPACITY: fabraj64
+  WS_DEV:  ws-sales-dtp
+  WS_TEST: ws-sales-test
+  WS_PROD: ws-sales-prod
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate workspace structure
+        run: |
+          ls workspace/
+          test -f workspace/VariableLibraries/vl_sales_dtp.VariableLibrary/variables.json
+          test -f workspace/Dataflows/df_load_factsales.Dataflow/mashup.pq
+          echo "✅ Layout OK"
+      - name: Validate JSON
+        run: |
+          for f in $(find workspace -name '*.json'); do
+            python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f" && echo "✓ $f"
+          done
+
+  deploy-test:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Install fabric-cli
+        run: pip install ms-fabric-cli
+      - name: Authenticate
+        env:
+          FABRIC_TENANT_ID:     ${{ secrets.FABRIC_TENANT_ID }}
+          FABRIC_CLIENT_ID:     ${{ secrets.FABRIC_CLIENT_ID }}
+          FABRIC_CLIENT_SECRET: ${{ secrets.FABRIC_CLIENT_SECRET }}
+        run: |
+          fab auth login -u $FABRIC_CLIENT_ID -p $FABRIC_CLIENT_SECRET --tenant $FABRIC_TENANT_ID
+      - name: Ensure workspace ws-sales-test exists, on capacity, deploy
+        run: |
+          fab create $WS_TEST.Workspace -P capacityName=$CAPACITY || true
+          fab import -f $WS_TEST.Workspace --input ./workspace --force
+      - name: Activate test value-set on Variable Library
+        run: |
+          fab set $WS_TEST.Workspace/vl_sales_dtp.VariableLibrary -q activeValueSet -i test
+      - name: Smoke test - refresh dataflow
+        run: |
+          fab job run $WS_TEST.Workspace/df_load_factsales.Dataflow
+
+  deploy-prod:
+    needs: deploy-test
+    runs-on: ubuntu-latest
+    environment: prod   # requires manual approval
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install ms-fabric-cli
+      - name: Authenticate
+        env:
+          FABRIC_TENANT_ID:     ${{ secrets.FABRIC_TENANT_ID }}
+          FABRIC_CLIENT_ID:     ${{ secrets.FABRIC_CLIENT_ID }}
+          FABRIC_CLIENT_SECRET: ${{ secrets.FABRIC_CLIENT_SECRET }}
+        run: fab auth login -u $FABRIC_CLIENT_ID -p $FABRIC_CLIENT_SECRET --tenant $FABRIC_TENANT_ID
+      - name: Ensure workspace ws-sales-prod, deploy
+        run: |
+          fab create $WS_PROD.Workspace -P capacityName=$CAPACITY || true
+          fab import -f $WS_PROD.Workspace --input ./workspace --force
+      - name: Activate prod value-set
+        run: fab set $WS_PROD.Workspace/vl_sales_dtp.VariableLibrary -q activeValueSet -i prod
+      - name: Refresh prod dataflow
+        run: fab job run $WS_PROD.Workspace/df_load_factsales.Dataflow

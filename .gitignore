@@ -1,0 +1,9 @@
+node_modules/
+*.pwd
+*.secret
+*.key
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store

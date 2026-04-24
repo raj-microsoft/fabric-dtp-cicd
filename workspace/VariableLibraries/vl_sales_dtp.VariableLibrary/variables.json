@@ -1,0 +1,30 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/variableLibrary/definition/variables/1.0.0/schema.json",
+  "variables": [
+    {
+      "name": "SqlServer",
+      "type": "String",
+      "value": "sql-fabric-dtp-raj-7362.database.windows.net"
+    },
+    {
+      "name": "SqlDatabase",
+      "type": "String",
+      "value": "salesdb-dev"
+    },
+    {
+      "name": "LakehouseId",
+      "type": "String",
+      "value": "13c59fed-f9e4-469a-b03d-1bc6cf38c1c5"
+    },
+    {
+      "name": "ConnectionId",
+      "type": "String",
+      "value": "615a522b-07d1-496a-b8d1-bd68056b7bab"
+    },
+    {
+      "name": "Environment",
+      "type": "String",
+      "value": "dev"
+    }
+  ]
+}
