@@ -65,11 +65,14 @@ jobs:
           fi
       - name: Promote items from $WS_DEV → $WS_TEST
         run: |
+          mkdir -p ./_export
           for item in vl_sales_dtp.VariableLibrary df_load_factsales.Dataflow; do
-            echo "→ $item"
-            fab cp "$WS_DEV.Workspace/$item" "$WS_TEST.Workspace/$item" --force
+            echo "→ export $item from $WS_DEV"
+            fab export "$WS_DEV.Workspace/$item" -o ./_export --force
+            echo "→ import $item into $WS_TEST"
+            fab import "$WS_TEST.Workspace/$item" -i "./_export/$item" --force
           done
-          # ensure target lakehouse exists
+          # ensure target lakehouse exists (lakehouse has no definition to import)
           if ! fab exists "$WS_TEST.Workspace/lh_sales_test.Lakehouse" 2>/dev/null; then
             fab mkdir "$WS_TEST.Workspace/lh_sales_test.Lakehouse"
           fi
@@ -104,8 +107,10 @@ jobs:
           fi
       - name: Promote items $WS_TEST → $WS_PROD
         run: |
+          mkdir -p ./_export
           for item in vl_sales_dtp.VariableLibrary df_load_factsales.Dataflow; do
-            fab cp "$WS_TEST.Workspace/$item" "$WS_PROD.Workspace/$item" --force
+            fab export "$WS_TEST.Workspace/$item" -o ./_export --force
+            fab import "$WS_PROD.Workspace/$item" -i "./_export/$item" --force
           done
           if ! fab exists "$WS_PROD.Workspace/lh_sales_prod.Lakehouse" 2>/dev/null; then
             fab mkdir "$WS_PROD.Workspace/lh_sales_prod.Lakehouse"
