@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
 
 env:
-  CAPACITY: fabraj64
+  CAPACITY_ID: fcad8576-813e-4f6d-baae-849840ed14ed   # fabraj64
   WS_DEV:  ws-sales-dtp
   WS_TEST: ws-sales-test
   WS_PROD: ws-sales-prod
@@ -57,14 +57,22 @@ jobs:
           fab auth login -u "$FABRIC_CLIENT_ID" -p "$FABRIC_CLIENT_SECRET" --tenant "$FABRIC_TENANT_ID"
       - name: Ensure $WS_TEST workspace exists on capacity
         run: |
-          fab mkdir "$WS_TEST.Workspace" -P "capacityName=$CAPACITY" 2>/dev/null || echo "workspace exists"
+          if ! fab exists "$WS_TEST.Workspace" 2>/dev/null; then
+            echo "Creating $WS_TEST..."
+            fab mkdir "$WS_TEST.Workspace" -P "capacityId=$CAPACITY_ID"
+          else
+            echo "$WS_TEST already exists"
+          fi
       - name: Promote items from $WS_DEV → $WS_TEST
         run: |
-          for item in vl_sales_dtp.VariableLibrary df_load_factsales.Dataflow lh_sales_test.Lakehouse; do
+          for item in vl_sales_dtp.VariableLibrary df_load_factsales.Dataflow; do
             echo "→ $item"
-            fab cp "$WS_DEV.Workspace/$item" "$WS_TEST.Workspace/" --force || \
-            fab import "$WS_TEST.Workspace/$item" -i "./workspace/$(echo $item | sed 's|\(.*\)\.\([^.]*\)|\2s/\1.\2|')" --force
+            fab cp "$WS_DEV.Workspace/$item" "$WS_TEST.Workspace/$item" --force
           done
+          # ensure target lakehouse exists
+          if ! fab exists "$WS_TEST.Workspace/lh_sales_test.Lakehouse" 2>/dev/null; then
+            fab mkdir "$WS_TEST.Workspace/lh_sales_test.Lakehouse"
+          fi
       - name: Activate test value-set
         run: |
           fab set "$WS_TEST.Workspace/vl_sales_dtp.VariableLibrary" -q activeValueSet -i test || true
@@ -90,12 +98,18 @@ jobs:
           fab config set encryption_fallback_enabled true
           fab auth login -u "$FABRIC_CLIENT_ID" -p "$FABRIC_CLIENT_SECRET" --tenant "$FABRIC_TENANT_ID"
       - name: Ensure $WS_PROD exists
-        run: fab mkdir "$WS_PROD.Workspace" -P "capacityName=$CAPACITY" 2>/dev/null || echo "exists"
+        run: |
+          if ! fab exists "$WS_PROD.Workspace" 2>/dev/null; then
+            fab mkdir "$WS_PROD.Workspace" -P "capacityId=$CAPACITY_ID"
+          fi
       - name: Promote items $WS_TEST → $WS_PROD
         run: |
-          for item in vl_sales_dtp.VariableLibrary df_load_factsales.Dataflow lh_sales_prod.Lakehouse; do
-            fab cp "$WS_TEST.Workspace/$item" "$WS_PROD.Workspace/" --force || true
+          for item in vl_sales_dtp.VariableLibrary df_load_factsales.Dataflow; do
+            fab cp "$WS_TEST.Workspace/$item" "$WS_PROD.Workspace/$item" --force
           done
+          if ! fab exists "$WS_PROD.Workspace/lh_sales_prod.Lakehouse" 2>/dev/null; then
+            fab mkdir "$WS_PROD.Workspace/lh_sales_prod.Lakehouse"
+          fi
       - name: Activate prod value-set
         run: fab set "$WS_PROD.Workspace/vl_sales_dtp.VariableLibrary" -q activeValueSet -i prod || true
       - name: Refresh prod dataflow
