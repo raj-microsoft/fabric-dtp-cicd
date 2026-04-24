@@ -32,7 +32,7 @@ jobs:
       - name: Validate repo layout
         run: |
           test -f workspace/VariableLibraries/vl_sales_dtp.VariableLibrary/variables.json
-          test -f workspace/Dataflows/df_load_factsales.Dataflow/dataflow-content.json
+          test -f workspace/Dataflows/df_load_factsales.Dataflow/mashup.pq
           for f in $(find workspace -name '*.json'); do
             python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$f" >/dev/null && echo "✓ $f"
           done
