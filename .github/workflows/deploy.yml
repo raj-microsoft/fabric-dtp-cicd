@@ -44,6 +44,7 @@ jobs:
           FABRIC_CLIENT_ID:     ${{ secrets.FABRIC_CLIENT_ID }}
           FABRIC_CLIENT_SECRET: ${{ secrets.FABRIC_CLIENT_SECRET }}
         run: |
+          fab config set encryption_fallback_enabled true
           fab auth login -u $FABRIC_CLIENT_ID -p $FABRIC_CLIENT_SECRET --tenant $FABRIC_TENANT_ID
       - name: Ensure workspace ws-sales-test exists, on capacity, deploy
         run: |
@@ -70,7 +71,9 @@ jobs:
           FABRIC_TENANT_ID:     ${{ secrets.FABRIC_TENANT_ID }}
           FABRIC_CLIENT_ID:     ${{ secrets.FABRIC_CLIENT_ID }}
           FABRIC_CLIENT_SECRET: ${{ secrets.FABRIC_CLIENT_SECRET }}
-        run: fab auth login -u $FABRIC_CLIENT_ID -p $FABRIC_CLIENT_SECRET --tenant $FABRIC_TENANT_ID
+        run: |
+          fab config set encryption_fallback_enabled true
+          fab auth login -u $FABRIC_CLIENT_ID -p $FABRIC_CLIENT_SECRET --tenant $FABRIC_TENANT_ID
       - name: Ensure workspace ws-sales-prod, deploy
         run: |
           fab create $WS_PROD.Workspace -P capacityName=$CAPACITY || true
